@@ -1,6 +1,5 @@
 import { products } from '../../../lib/products';
 
-// এখন অর্ডার শুধু সার্ভার লগে যায়। ডাটাবেস (Supabase/Neon) যোগ করলে এখানেই সেভ করবেন।
 export async function POST(req) {
   let body;
   try { body = await req.json(); } catch { return Response.json({ error: 'bad request' }, { status: 400 }); }
@@ -20,11 +19,44 @@ export async function POST(req) {
       return Response.json({ error: 'invalid item' }, { status: 400 });
     }
     total += p.price * qty;
-    lines.push({ id: p.id, qty });
+    lines.push(`- ${p.name} x ${qty} = ৳${p.price * qty}`);
   }
   const shipping = total >= 1000 ? 0 : 60;
   const orderId = 'CG-' + Date.now().toString(36).toUpperCase();
 
-  console.log('NEW ORDER', { orderId, name, phone, address, lines, total: total + shipping });
+  const text = [
+    `নতুন অর্ডার ${orderId}`,
+    '',
+    ...lines,
+    '',
+    `ডেলিভারি: ৳${shipping}`,
+    `মোট (ক্যাশ অন ডেলিভারি): ৳${total + shipping}`,
+    '',
+    `নাম: ${String(name).slice(0, 100)}`,
+    `ফোন: ${String(phone).slice(0, 30)}`,
+    `ঠিকানা: ${String(address).slice(0, 400)}`,
+  ].join('\n');
+
+  console.log('NEW ORDER', text);
+
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) {
+    console.error('Telegram settings missing');
+    return Response.json({ error: 'not configured' }, { status: 500 });
+  }
+
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+  } catch (e) {
+    console.error('Telegram failed', e);
+    return Response.json({ error: 'notify failed' }, { status: 502 });
+  }
+
   return Response.json({ orderId });
 }
